@@ -99,6 +99,7 @@ h1 {
   overflow: hidden;
   border-radius: 6px;
   background: #0d0d0d;
+  touch-action: none;
 }
 
 .camera-empty {
@@ -134,9 +135,42 @@ video {
   transform: scaleX(-1);
 }
 
+.sticker-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
+.sticker {
+  position: absolute;
+  min-height: 0;
+  width: auto;
+  height: auto;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #fff;
+  cursor: grab;
+  line-height: 1;
+  padding: 4px;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.32);
+  touch-action: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.sticker:active {
+  cursor: grabbing;
+}
+
+.sticker.active {
+  border-color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .countdown {
   position: absolute;
   inset: 0;
+  z-index: 3;
   display: grid;
   place-items: center;
   border-radius: 6px;
@@ -319,7 +353,7 @@ button.secondary {
 
 .filter-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
 }
 
@@ -337,6 +371,42 @@ button.secondary {
   border-color: var(--button);
   background: var(--button);
   color: var(--button-text);
+}
+
+.sticker-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+
+.sticker-grid .option {
+  display: inline-flex;
+  gap: 0;
+  padding: 0 8px;
+}
+
+.sticker-settings {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.sticker-settings label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sticker-settings input {
+  min-height: 22px;
+  padding: 0;
+  accent-color: var(--button);
 }
 
 .toggle {
@@ -406,7 +476,11 @@ button:focus-visible {
   }
 
   .filter-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .sticker-grid {
+    grid-template-columns: repeat(3, 1fr);
   }
 
   .control-row {
