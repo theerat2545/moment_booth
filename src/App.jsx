@@ -94,12 +94,21 @@ export default function App() {
   }
 
   async function captureFrame() {
-    const source = captureRawSourceFrame(videoRef.current, canvasRef.current, stickers);
-    const src = captureFilteredVideoFrame(videoRef.current, canvasRef.current, stickers, selectedFilter);
+    await waitForFontReady();
+
+    const stickerSnapshot = stickers.map((sticker) => ({ ...sticker }));
+    const source = captureRawSourceFrame(videoRef.current, canvasRef.current);
+    const src = captureFilteredVideoFrame(
+      videoRef.current,
+      canvasRef.current,
+      stickerSnapshot,
+      selectedFilter
+    );
 
     return {
       source,
       src,
+      stickers: stickerSnapshot,
       filterId: selectedFilter.id,
     };
   }
@@ -149,7 +158,7 @@ export default function App() {
     const nextPhotos = await Promise.all(
       photos.map(async (photo) => ({
         ...photo,
-        src: await renderFilteredPhoto(photo.source, nextFilter),
+        src: await renderFilteredPhoto(photo.source, nextFilter, photo.stickers ?? []),
         filterId: nextFilter.id,
       }))
     );
@@ -561,7 +570,7 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function captureRawSourceFrame(video, canvas, stickers) {
+function captureRawSourceFrame(video, canvas) {
   const ctx = canvas.getContext("2d");
 
   canvas.width = video.videoWidth;
@@ -573,7 +582,6 @@ function captureRawSourceFrame(video, canvas, stickers) {
   ctx.scale(-1, 1);
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  drawStickers(ctx, canvas.width, canvas.height, stickers);
 
   return canvas.toDataURL("image/png");
 }
@@ -605,7 +613,7 @@ function captureFilteredVideoFrame(video, canvas, stickers, filter) {
   return canvas.toDataURL("image/png");
 }
 
-async function renderFilteredPhoto(source, filter) {
+async function renderFilteredPhoto(source, filter, stickers = []) {
   const img = await loadImage(source);
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -626,8 +634,17 @@ async function renderFilteredPhoto(source, filter) {
   addFilterOverlay(ctx, canvas.width, canvas.height, filter.overlayColor);
   addVignette(ctx, 0, 0, canvas.width, canvas.height, filter.vignette);
   addGrain(ctx, canvas.width, canvas.height, filter.grain);
+  drawStickers(ctx, canvas.width, canvas.height, stickers);
 
   return canvas.toDataURL("image/png");
+}
+
+function waitForFontReady() {
+  if (!document.fonts?.ready) {
+    return Promise.resolve();
+  }
+
+  return document.fonts.ready.catch(() => undefined);
 }
 
 function loadImage(src) {
