@@ -108,6 +108,8 @@ export default function App() {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.filter = filter.canvas;
@@ -197,7 +199,12 @@ export default function App() {
         const dx = x + (frameW - drawW) / 2;
         const dy = y + (frameH - drawH) / 2;
 
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, y, frameW, frameH);
+        ctx.clip();
         ctx.drawImage(img, dx, dy, drawW, drawH);
+        ctx.restore();
       });
 
       ctx.fillStyle = theme === "cream" ? "#171717" : "#f8f8f8";
