@@ -14,7 +14,16 @@ const LAYOUTS = [
   { id: "1x4", label: "1x4", count: 4, cols: 1, rows: 4 },
   { id: "4x1", label: "4x1", count: 4, cols: 4, rows: 1 },
 ];
-const STICKER_PRESETS = ["SPARK", "LOVE", "STAR", "SMILE", "MOMENT"];
+const STICKER_PRESETS = [
+  { label: "Spark", value: "\u2728" },
+  { label: "Heart", value: "\u2764\uFE0F" },
+  { label: "Star", value: "\u2B50" },
+  { label: "Smile", value: "\u{1F60A}" },
+  { label: "Cool", value: "\u{1F60E}" },
+  { label: "Bloom", value: "\u{1F338}" },
+  { label: "Bow", value: "\u{1F380}" },
+  { label: "MOMENT", value: "MOMENT" },
+];
 
 export default function App() {
   const videoRef = useRef(null);
@@ -150,11 +159,12 @@ export default function App() {
 
   function addSticker(value) {
     const offset = stickers.length * 4;
+    const id = crypto.randomUUID();
 
     setStickers([
       ...stickers,
       {
-        id: crypto.randomUUID(),
+        id,
         value,
         x: Math.min(72, 42 + offset),
         y: Math.min(72, 38 + offset),
@@ -162,6 +172,7 @@ export default function App() {
         rotation: 0,
       },
     ]);
+    setActiveStickerId(id);
   }
 
   function updateSticker(id, patch) {
@@ -178,6 +189,7 @@ export default function App() {
   }
 
   function startStickerDrag(event, sticker) {
+    event.preventDefault();
     const bounds = event.currentTarget.parentElement.getBoundingClientRect();
 
     dragRef.current = {
@@ -196,6 +208,7 @@ export default function App() {
 
   function moveSticker(event) {
     if (!dragRef.current) return;
+    event.preventDefault();
 
     const drag = dragRef.current;
     const nextX = drag.originX + ((event.clientX - drag.startX) / drag.width) * 100;
@@ -328,7 +341,7 @@ export default function App() {
                 <div className="filter-preview-overlay" />
                 <div className="filter-preview-vignette" />
                 <div className="filter-preview-grain" />
-                <div className="sticker-layer" onPointerMove={moveSticker} onPointerUp={stopStickerDrag}>
+                <div className="sticker-layer">
                   {stickers.map((sticker) => (
                     <button
                       className={activeStickerId === sticker.id ? "sticker active" : "sticker"}
@@ -449,8 +462,14 @@ export default function App() {
               <span className="control-label">Stickers</span>
               <div className="sticker-grid">
                 {STICKER_PRESETS.map((sticker) => (
-                  <button className="option" key={sticker} onClick={() => addSticker(sticker)} type="button">
-                    {sticker}
+                  <button
+                    aria-label={`Add ${sticker.label} sticker`}
+                    className="option emoji-option"
+                    key={sticker.label}
+                    onClick={() => addSticker(sticker.value)}
+                    type="button"
+                  >
+                    {sticker.value}
                   </button>
                 ))}
                 <button
@@ -668,17 +687,22 @@ function drawStickers(ctx, width, height, stickers) {
     const x = (sticker.x / 100) * width;
     const y = (sticker.y / 100) * height;
     const size = (sticker.size / 100) * width;
+    const isEmoji = Array.from(sticker.value).some((char) => char.codePointAt(0) > 255);
 
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate((sticker.rotation * Math.PI) / 180);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.font = `700 ${size}px Inter, Arial, sans-serif`;
+    ctx.font = `700 ${size}px Inter, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
     ctx.fillStyle = "#ffffff";
     ctx.strokeStyle = "rgba(0, 0, 0, 0.28)";
     ctx.lineWidth = Math.max(4, size * 0.06);
-    ctx.strokeText(sticker.value, 0, 0);
+
+    if (!isEmoji) {
+      ctx.strokeText(sticker.value, 0, 0);
+    }
+
     ctx.fillText(sticker.value, 0, 0);
     ctx.restore();
   });
