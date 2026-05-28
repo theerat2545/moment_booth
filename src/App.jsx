@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Camera, Download, RotateCcw, Trash2 } from "lucide-react";
+import { FILTERS } from "./filters";
 import "./style.css";
 
 const PHOTO_COUNTS = [1, 2, 3, 4];
@@ -13,43 +14,7 @@ const LAYOUTS = [
   { id: "1x4", label: "1x4", count: 4, cols: 1, rows: 4 },
   { id: "4x1", label: "4x1", count: 4, cols: 4, rows: 1 },
 ];
-const FILTERS = [
-  { id: "clean", label: "Clean", preview: "none", apply: null },
-  {
-    id: "soft",
-    label: "Soft",
-    preview: "contrast(0.95) saturate(0.9) brightness(1.06)",
-    apply(caman) {
-      caman.brightness(6).contrast(-5).saturation(-10);
-    },
-  },
-  {
-    id: "mono",
-    label: "Mono",
-    preview: "grayscale(1) contrast(1.05)",
-    apply(caman) {
-      caman.greyscale().contrast(5);
-    },
-  },
-  {
-    id: "warm",
-    label: "Warm",
-    preview: "sepia(0.18) saturate(1.08) brightness(1.02)",
-    apply(caman) {
-      caman.sepia(18).saturation(8).brightness(2);
-    },
-  },
-  {
-    id: "vivid",
-    label: "Vivid",
-    preview: "contrast(1.12) saturate(1.22)",
-    apply(caman) {
-      caman.contrast(12).saturation(22);
-    },
-  },
-];
-const STICKER_PRESETS = ["✨", "♡", "★", "☻", "MOMENT"];
-const CAMAN_SRC = "https://cdnjs.cloudflare.com/ajax/libs/camanjs/4.1.2/caman.full.min.js";
+const STICKER_PRESETS = ["SPARK", "LOVE", "STAR", "SMILE", "MOMENT"];
 
 export default function App() {
   const videoRef = useRef(null);
@@ -63,7 +28,7 @@ export default function App() {
   const [isShooting, setIsShooting] = useState(false);
   const [caption, setCaption] = useState("tiny moments, forever kept.");
   const [theme, setTheme] = useState("cream");
-  const [filter, setFilter] = useState(FILTERS[0]);
+  const [selectedFilter, setSelectedFilter] = useState(FILTERS[0]);
   const [showDate, setShowDate] = useState(true);
   const [cameraError, setCameraError] = useState("");
   const [shotCount, setShotCount] = useState(4);
@@ -120,24 +85,14 @@ export default function App() {
   }
 
   async function captureFrame() {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
+    const source = captureRawSourceFrame(videoRef.current, canvasRef.current, stickers);
+    const src = captureFilteredVideoFrame(videoRef.current, canvasRef.current, stickers, selectedFilter);
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-    await applyCamanFilter(canvas, filter);
-    drawStickers(ctx, canvas.width, canvas.height, stickers);
-
-    return canvas.toDataURL("image/png");
+    return {
+      source,
+      src,
+      filterId: selectedFilter.id,
+    };
   }
 
   async function startPhotobooth() {
@@ -177,6 +132,22 @@ export default function App() {
     setIsShooting(false);
   }
 
+  async function selectFilter(nextFilter) {
+    setSelectedFilter(nextFilter);
+
+    if (photos.length === 0) return;
+
+    const nextPhotos = await Promise.all(
+      photos.map(async (photo) => ({
+        ...photo,
+        src: await renderFilteredPhoto(photo.source, nextFilter),
+        filterId: nextFilter.id,
+      }))
+    );
+
+    setPhotos(nextPhotos);
+  }
+
   function addSticker(value) {
     const offset = stickers.length * 4;
 
@@ -187,7 +158,7 @@ export default function App() {
         value,
         x: Math.min(72, 42 + offset),
         y: Math.min(72, 38 + offset),
-        size: value.length > 2 ? 10 : 11,
+        size: value.length > 5 ? 9 : 11,
         rotation: 0,
       },
     ]);
@@ -259,11 +230,11 @@ export default function App() {
     ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
 
     const loadImages = photos.map(
-      (src) =>
+      (photo) =>
         new Promise((resolve) => {
           const img = new Image();
           img.onload = () => resolve(img);
-          img.src = src;
+          img.src = photo.src;
         })
     );
 
@@ -288,6 +259,7 @@ export default function App() {
         ctx.rect(x, y, frameW, frameH);
         ctx.clip();
         ctx.drawImage(img, dx, dy, drawW, drawH);
+        addVignette(ctx, x, y, frameW, frameH, selectedFilter.vignette * 0.35);
         ctx.restore();
       });
 
@@ -322,10 +294,17 @@ export default function App() {
         <div className="camera-card">
           <div className="camera-toolbar">
             <span>{progressText} frames</span>
-            <span>{selectedLayout.label} / {filter.label}</span>
+            <span>{selectedLayout.label} / {selectedFilter.name}</span>
           </div>
 
-          <div className="camera-preview">
+          <div
+            className="camera-preview"
+            style={{
+              "--filter-overlay": selectedFilter.overlayColor,
+              "--filter-grain": selectedFilter.grain,
+              "--filter-vignette": selectedFilter.vignette,
+            }}
+          >
             {cameraError ? (
               <div className="camera-empty">
                 <span>{cameraError}</span>
@@ -340,32 +319,37 @@ export default function App() {
                 autoPlay
                 playsInline
                 muted
-                style={{ filter: filter.preview }}
+                style={{ filter: selectedFilter.cssFilter }}
               />
             )}
 
             {!cameraError && (
-              <div className="sticker-layer" onPointerMove={moveSticker} onPointerUp={stopStickerDrag}>
-                {stickers.map((sticker) => (
-                  <button
-                    className={activeStickerId === sticker.id ? "sticker active" : "sticker"}
-                    key={sticker.id}
-                    onPointerCancel={stopStickerDrag}
-                    onPointerDown={(event) => startStickerDrag(event, sticker)}
-                    onPointerMove={moveSticker}
-                    onPointerUp={stopStickerDrag}
-                    style={{
-                      left: `${sticker.x}%`,
-                      top: `${sticker.y}%`,
-                      fontSize: `clamp(22px, ${sticker.size}vw, 82px)`,
-                      transform: `translate(-50%, -50%) rotate(${sticker.rotation}deg)`,
-                    }}
-                    type="button"
-                  >
-                    {sticker.value}
-                  </button>
-                ))}
-              </div>
+              <>
+                <div className="filter-preview-overlay" />
+                <div className="filter-preview-vignette" />
+                <div className="filter-preview-grain" />
+                <div className="sticker-layer" onPointerMove={moveSticker} onPointerUp={stopStickerDrag}>
+                  {stickers.map((sticker) => (
+                    <button
+                      className={activeStickerId === sticker.id ? "sticker active" : "sticker"}
+                      key={sticker.id}
+                      onPointerCancel={stopStickerDrag}
+                      onPointerDown={(event) => startStickerDrag(event, sticker)}
+                      onPointerMove={moveSticker}
+                      onPointerUp={stopStickerDrag}
+                      style={{
+                        left: `${sticker.x}%`,
+                        top: `${sticker.y}%`,
+                        fontSize: `clamp(22px, ${sticker.size}vw, 82px)`,
+                        transform: `translate(-50%, -50%) rotate(${sticker.rotation}deg)`,
+                      }}
+                      type="button"
+                    >
+                      {sticker.value}
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
 
             {countdown && <div className="countdown">{countdown}</div>}
@@ -375,6 +359,27 @@ export default function App() {
             <Camera size={18} />
             {isShooting ? "Shooting..." : "Start booth"}
           </button>
+
+          <div className="filter-carousel" aria-label="Filter presets">
+            {FILTERS.map((preset) => (
+              <button
+                className={selectedFilter.id === preset.id ? "filter-card active" : "filter-card"}
+                key={preset.id}
+                onClick={() => selectFilter(preset)}
+                type="button"
+              >
+                <span
+                  className="filter-thumb"
+                  style={{
+                    filter: preset.cssFilter,
+                    "--filter-overlay": preset.overlayColor,
+                    "--filter-vignette": preset.vignette,
+                  }}
+                />
+                <span>{preset.name}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="strip-card">
@@ -388,7 +393,7 @@ export default function App() {
             <div className="strip-grid">
               {Array.from({ length: shotCount }).map((_, index) =>
                 photos[index] ? (
-                  <img key={index} src={photos[index]} alt={`Frame ${index + 1}`} />
+                  <img key={index} src={photos[index].src} alt={`Frame ${index + 1}`} />
                 ) : (
                   <div className="frame-slot" key={index}>
                     {index + 1}
@@ -438,19 +443,6 @@ export default function App() {
                   </button>
                 ))}
               </div>
-            </div>
-
-            <div className="filter-grid" aria-label="Filter presets">
-              {FILTERS.map((preset) => (
-                <button
-                  className={filter.id === preset.id ? "filter active" : "filter"}
-                  key={preset.id}
-                  onClick={() => setFilter(preset)}
-                  type="button"
-                >
-                  {preset.label}
-                </button>
-              ))}
             </div>
 
             <div className="option-group">
@@ -505,13 +497,13 @@ export default function App() {
             <input
               aria-label="Caption"
               value={caption}
-              onChange={(e) => setCaption(e.target.value)}
+              onChange={(event) => setCaption(event.target.value)}
             />
 
             <label className="toggle">
               <input
                 checked={showDate}
-                onChange={(e) => setShowDate(e.target.checked)}
+                onChange={(event) => setShowDate(event.target.checked)}
                 type="checkbox"
               />
               <span>Date stamp</span>
@@ -521,7 +513,7 @@ export default function App() {
               <select
                 aria-label="Theme"
                 value={theme}
-                onChange={(e) => setTheme(e.target.value)}
+                onChange={(event) => setTheme(event.target.value)}
               >
                 <option value="cream">Light</option>
                 <option value="dark">Dark</option>
@@ -550,59 +542,125 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function applyCamanFilter(canvas, preset) {
-  if (!preset.apply) {
-    return Promise.resolve();
-  }
+function captureRawSourceFrame(video, canvas, stickers) {
+  const ctx = canvas.getContext("2d");
 
-  return loadCaman()
-    .then(
-      () =>
-        new Promise((resolve) => {
-          const source = document.createElement("canvas");
-          const sourceCtx = source.getContext("2d");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
 
-          source.width = canvas.width;
-          source.height = canvas.height;
-          sourceCtx.drawImage(canvas, 0, 0);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.translate(canvas.width, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  drawStickers(ctx, canvas.width, canvas.height, stickers);
 
-          window.Caman(source, function applyPreset() {
-            preset.apply(this);
-            this.render(() => {
-              const ctx = canvas.getContext("2d");
-              ctx.setTransform(1, 0, 0, 1, 0, 0);
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-              ctx.drawImage(source, 0, 0);
-              resolve();
-            });
-          });
-        })
-    )
-    .catch(() => undefined);
+  return canvas.toDataURL("image/png");
 }
 
-function loadCaman() {
-  if (window.Caman) {
-    return Promise.resolve();
+function captureFilteredVideoFrame(video, canvas, stickers, filter) {
+  const ctx = canvas.getContext("2d");
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.translate(canvas.width, 0);
+  ctx.scale(-1, 1);
+
+  if (supportsCanvasFilter(ctx)) {
+    ctx.filter = filter.cssFilter;
   }
 
-  const existingScript = document.querySelector(`script[src="${CAMAN_SRC}"]`);
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  ctx.filter = "none";
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-  if (existingScript) {
-    return new Promise((resolve, reject) => {
-      existingScript.addEventListener("load", resolve, { once: true });
-      existingScript.addEventListener("error", reject, { once: true });
-    });
+  addFilterOverlay(ctx, canvas.width, canvas.height, filter.overlayColor);
+  addVignette(ctx, 0, 0, canvas.width, canvas.height, filter.vignette);
+  addGrain(ctx, canvas.width, canvas.height, filter.grain);
+  drawStickers(ctx, canvas.width, canvas.height, stickers);
+
+  return canvas.toDataURL("image/png");
+}
+
+async function renderFilteredPhoto(source, filter) {
+  const img = await loadImage(source);
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+
+  canvas.width = img.width;
+  canvas.height = img.height;
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (supportsCanvasFilter(ctx)) {
+    ctx.filter = filter.cssFilter;
   }
 
-  return new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = CAMAN_SRC;
-    script.async = true;
-    script.onload = resolve;
-    script.onerror = reject;
-    document.body.appendChild(script);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  ctx.filter = "none";
+
+  addFilterOverlay(ctx, canvas.width, canvas.height, filter.overlayColor);
+  addVignette(ctx, 0, 0, canvas.width, canvas.height, filter.vignette);
+  addGrain(ctx, canvas.width, canvas.height, filter.grain);
+
+  return canvas.toDataURL("image/png");
+}
+
+function loadImage(src) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.src = src;
   });
+}
+
+function supportsCanvasFilter(ctx) {
+  return "filter" in ctx;
+}
+
+function addFilterOverlay(ctx, width, height, color) {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
+}
+
+function addVignette(ctx, x, y, width, height, amount = 0) {
+  if (!amount) return;
+
+  const centerX = x + width / 2;
+  const centerY = y + height / 2;
+  const radius = Math.max(width, height) * 0.72;
+  const gradient = ctx.createRadialGradient(centerX, centerY, radius * 0.2, centerX, centerY, radius);
+
+  gradient.addColorStop(0, "rgba(0, 0, 0, 0)");
+  gradient.addColorStop(1, `rgba(0, 0, 0, ${amount})`);
+
+  ctx.save();
+  ctx.fillStyle = gradient;
+  ctx.fillRect(x, y, width, height);
+  ctx.restore();
+}
+
+function addGrain(ctx, width, height, amount = 0) {
+  if (!amount) return;
+
+  const density = Math.floor((width * height) / 260);
+
+  ctx.save();
+  for (let i = 0; i < density; i++) {
+    const alpha = Math.random() * amount;
+    const value = Math.random() > 0.5 ? 255 : 0;
+
+    ctx.fillStyle = `rgba(${value}, ${value}, ${value}, ${alpha})`;
+    ctx.fillRect(Math.random() * width, Math.random() * height, 1, 1);
+  }
+  ctx.restore();
 }
 
 function drawStickers(ctx, width, height, stickers) {
