@@ -98,7 +98,7 @@ export default function App() {
 
     const stickerSnapshot = stickers.map((sticker) => ({ ...sticker }));
     const source = captureRawSourceFrame(videoRef.current, canvasRef.current);
-    const src = captureFilteredVideoFrame(
+    const src = await captureFilteredVideoFrame(
       videoRef.current,
       canvasRef.current,
       stickerSnapshot,
@@ -586,7 +586,7 @@ function captureRawSourceFrame(video, canvas) {
   return canvas.toDataURL("image/png");
 }
 
-function captureFilteredVideoFrame(video, canvas, stickers, filter) {
+async function captureFilteredVideoFrame(video, canvas, stickers, filter) {
   const ctx = canvas.getContext("2d");
 
   canvas.width = video.videoWidth;
@@ -608,7 +608,7 @@ function captureFilteredVideoFrame(video, canvas, stickers, filter) {
   addFilterOverlay(ctx, canvas.width, canvas.height, filter.overlayColor);
   addVignette(ctx, 0, 0, canvas.width, canvas.height, filter.vignette);
   addGrain(ctx, canvas.width, canvas.height, filter.grain);
-  drawStickers(ctx, canvas.width, canvas.height, stickers);
+  await drawStickers(ctx, canvas.width, canvas.height, stickers);
 
   return canvas.toDataURL("image/png");
 }
@@ -634,7 +634,7 @@ async function renderFilteredPhoto(source, filter, stickers = []) {
   addFilterOverlay(ctx, canvas.width, canvas.height, filter.overlayColor);
   addVignette(ctx, 0, 0, canvas.width, canvas.height, filter.vignette);
   addGrain(ctx, canvas.width, canvas.height, filter.grain);
-  drawStickers(ctx, canvas.width, canvas.height, stickers);
+  await drawStickers(ctx, canvas.width, canvas.height, stickers);
 
   return canvas.toDataURL("image/png");
 }
@@ -699,30 +699,57 @@ function addGrain(ctx, width, height, amount = 0) {
   ctx.restore();
 }
 
-function drawStickers(ctx, width, height, stickers) {
-  stickers.forEach((sticker) => {
+async function drawStickers(ctx, width, height, stickers) {
+  for (const sticker of stickers) {
     const x = (sticker.x / 100) * width;
     const y = (sticker.y / 100) * height;
     const size = (sticker.size / 100) * width;
-    const isEmoji = Array.from(sticker.value).some((char) => char.codePointAt(0) > 255);
+    const stickerImage = await createStickerImage(sticker.value, size);
+    const boxSize = size * (sticker.value.length > 4 ? 3.2 : 1.65);
 
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate((sticker.rotation * Math.PI) / 180);
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.font = `700 ${size}px Inter, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
-    ctx.fillStyle = "#ffffff";
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.28)";
-    ctx.lineWidth = Math.max(4, size * 0.06);
-
-    if (!isEmoji) {
-      ctx.strokeText(sticker.value, 0, 0);
-    }
-
-    ctx.fillText(sticker.value, 0, 0);
+    ctx.drawImage(stickerImage, -boxSize / 2, -boxSize / 2, boxSize, boxSize);
     ctx.restore();
-  });
+  }
+}
+
+function createStickerImage(value, size) {
+  const boxSize = Math.ceil(size * (value.length > 4 ? 3.2 : 1.65));
+  const fontSize = Math.ceil(size);
+  const escapedValue = escapeHtml(value);
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${boxSize}" height="${boxSize}" viewBox="0 0 ${boxSize} ${boxSize}">
+      <style>
+        text {
+          font-family: Inter, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+          font-weight: 800;
+          dominant-baseline: middle;
+          text-anchor: middle;
+        }
+      </style>
+      <text
+        x="${boxSize / 2}"
+        y="${boxSize / 2}"
+        font-size="${fontSize}"
+        fill="#ffffff"
+        stroke="rgba(0,0,0,0.3)"
+        stroke-width="${Math.max(2, fontSize * 0.05)}"
+        paint-order="stroke fill"
+      >${escapedValue}</text>
+    </svg>
+  `;
+
+  return loadImage(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
+}
+
+function escapeHtml(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 function clamp(value, min, max) {
